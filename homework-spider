@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Dec 26 19:53:20 2018
+
+@author: linge
+"""
+# 导入爬虫所需package
+import urllib.request  
+import re
+import os
+import requests
+import csv
+
+target_url = "http://hz.esf.fang.com"
+schoolNo = 0
+courtNo = 0
+houseNo = 0
+
+courtHeader = False
+houseHeader = False
+
+
+def courtSpider(url, schoolName):
+    global courtNo
+    global courtHeader 
+    # 爬取小区数据
+    with open("court.csv", "a") as csvfile:
+        writer =  csv.writer(csvfile)
+
+        # 写入表头
+        if courtHeader == False:
+            writer.writerow(["序号","学校名称","小区名称","小区均价","建筑年代","学校距离"])
+            courtHeader = True
+        results = []
+        
+        while len(url) != 0:
+            response = requests.get(target_url + url[0])
+            response.encoding = 'gb2312'
+            html_reg = r'<!--对口小区-->(.*?)<!--地图交通-->'
+            html = re.findall(html_reg, response.text, re.S|re.M)
+            #print(html)
+            courtItem_reg = r'<li>(.*?)</li>'
+            courtList = re.findall(courtItem_reg, html[0], re.S|re.M)
+            #print(courtList, len(courtList))
+            for court in courtList:
+                courtNo += 1
+                
+                courtName_reg = r'<a href="//.*?.fang.com" class="title" target="_blank">(.*?)</a>'
+                courtName = re.findall(courtName_reg, court, re.S|re.M)
+                
+                courtInfo_reg = r'<span class="gray6">小区均价：</span><strong class="red">(.*?)</strong>元.*?<span class="gray6 ml30">建筑年代：</span>(.*?)<span class="gray6 ml30">距离学校：</span>(.*?)km'
+                courtInfo = re.findall(courtInfo_reg, court, re.S|re.M)
+                #print(courtInfo)
+                
+                result = []
+                result.append(courtNo)
+                result.append(schoolName)
+                result.extend(courtName)
+                result.append(courtInfo[0][0])
+                result.append(courtInfo[0][1])
+                result.append(courtInfo[0][2])
+                results.append(result)
+                
+            url = []
+            
+        writer.writerows(results)
+        
+def houseSpider(url, schoolName):
+    global houseNo
+    global houseHeader
+    # 爬取学区房数据
+    with open("house.csv", "a") as csvfile:
+        writer =  csv.writer(csvfile)
+
+        # 写入表头
+        if houseHeader == False:
+            writer.writerow(["序号","小区名称","对口小学","建筑面积","户型","楼层","总层数","朝向","建筑年代","单价（元/平米）","总价(万元)"])
+            houseHeader = True
+        results = []
+        
+        while len(url) != 0:
+            response = requests.get(target_url + url[0])
+            response.encoding = 'gb2312'
+            
+            houseList_reg = r'<dl id="list_(.*?)</dl>'
+            houseList = re.findall(houseList_reg, response.text, re.S|re.M)
+            
+            for house in houseList:
+                houseNo += 1
+                
+                courtName_reg = r'<p class="mt10"><a target="_blank" href=".*?" title="(.*?)">'
+                courtName = re.findall(courtName_reg, house, re.S|re.M)
+                
+                houseArea_reg = r'<div class="area alignR">.*?<p>(.*?)</p>'
+                houseArea = re.findall(houseArea_reg, house, re.S|re.M)
+                
+                # print(courtName, houseArea)
+                price_reg = r'<span class="price">(.*?)</span>'
+                price = re.findall(price_reg, house, re.S|re.M)
+                
+                pricePer_reg = r'<p class="danjia alignR mt5">(.*?)元<span'
+                pricePer = re.findall(pricePer_reg, house, re.S|re.M)
+                
+                # print(courtName, houseArea, price, pricePer)
+                tmp_reg = r'<p class="mt12"(.*?)<p class="mt10">'
+                tmp = re.findall(tmp_reg, house, re.S|re.M)
+                houseInfo_reg = r'>(.*?)<'
+                houseInfo = re.findall(houseInfo_reg, tmp[0], re.S|re.M)
+                houseInfo_tmp = []
+                for i in range(len(houseInfo)):
+                    houseInfo[i] = houseInfo[i].replace(' ','')
+                    houseInfo[i] = houseInfo[i].replace('\n','')
+                    houseInfo[i] = houseInfo[i].replace('\r','')
+                    if houseInfo[i] != '|':
+                        houseInfo_tmp.append(houseInfo[i])
+
+                if len(houseInfo_tmp) != 4:
+                    continue
+                huxing = houseInfo_tmp[0]
+                chaoxiang = houseInfo_tmp[2]
+                houseYear = houseInfo_tmp[3][-4:]
+                floor = houseInfo_tmp[1][:2]
+                tmmmmp_reg = r'共(.*?)层'
+                floors = re.findall(tmmmmp_reg, houseInfo_tmp[1], re.S|re.M)
+                #print(huxing, chaoxiang, houseYear, floor, floors)
+                
+                result = []
+                result.append(houseNo)
+                result.extend(courtName)
+                result.append(schoolName)
+                result.append(houseArea[0][:-2])
+                result.append(huxing)
+                result.append(floor)
+                result.extend(floors)
+                result.append(chaoxiang)
+                result.append(houseYear)
+                result.extend(pricePer)
+                result.extend(price)
+                #print(result)
+                results.append(result)
+            
+            url_pre = r'<a id="PageControl1_hlk_next" href="(.*?)">下一页'
+            url = re.findall(url_pre, response.text, re.S|re.M)
+            #print(url)
+
+        writer.writerows(results)
+def schoolSpider():
+    global schoolNo
+    # 打开csv文件用于存储
+    with open("school.csv", "a") as csvfile:
+        writer =  csv.writer(csvfile)
+        
+        # 写入表头
+        writer.writerow(["序号","学校","小区个数","学校地址","等级特色","价格区间"])
+        results = []
+        
+        url = ['/school/']
+        
+        # 循环访问html页面
+        while len(url) != 0:
+            response = requests.get(target_url + url[0])
+            response.encoding = 'gb2312'
+            indexStart = response.text.find("<!--houseList star-->")
+            indexEnd = response.text.find("<!--houseList end-->")
+            html = response.text[indexStart : indexEnd]
+            # 下一页地址
+            nextPage_reg = r'<a id="PageControl1_hlk_next" href="(.*?)">下一页</a>'
+            url = re.findall(nextPage_reg, response.text, re.S|re.M)
+            # 筛选学校列
+            schoolList_reg=r'<dl .*?>(.*?)</dl>'
+            schoolList = re.findall(schoolList_reg, html, re.S|re.M)
+            for school in schoolList:
+                schoolNo += 1
+                # 学校
+                schoolName_reg = r'<p class="title"><a .*?>(.*?)</a>'
+                # 小区个数
+                courtNum_reg = r'#xiaoqu">(.*?)个小区<'
+                # 学校地址
+                schoolAdd_reg = r'<span class="iconAdress">(.*?)</span>'
+                # 等级特色
+                schoolRank_reg = r'<span class="note .*?">(.*?)</span>'
+                # 价格区间
+                price_reg = r'<strong>(.*?)</strong>元'
+                
+                schoolName = re.findall(schoolName_reg, school, re.S|re.M)
+                courtNum = re.findall(courtNum_reg, school, re.S|re.M)
+                schoolAdd = re.findall(schoolAdd_reg, school, re.S|re.M)
+                schoolRank = re.findall(schoolRank_reg, school, re.S|re.M)
+                price = re.findall(price_reg, school, re.S|re.M)
+                
+                #print(schoolName, courtNum, schoolAdd, schoolRank, price)
+                result = []
+                result.append(schoolNo)
+                result.extend(schoolName)
+                result.extend(courtNum)
+                result.extend(schoolAdd)
+                result.extend(schoolRank)
+                result.extend(price)
+                results.append(result)
+                
+                # 获取小区url
+                court_url_reg = r'<a target="_blank" href="(.*?)">.*?个小区</a></p>'
+                court_url = re.findall(court_url_reg, school, re.S|re.M)
+                # 获取学区房url
+                house_url_reg = r'<a class="hsNum blue alignR" target="_blank" href="(.*?)"><strong>.*?</strong>套</a>'
+                house_url = re.findall(house_url_reg, school, re.S|re.M)
+                
+                courtSpider(court_url, schoolName[0])
+                houseSpider(house_url, schoolName[0])
+                    
+        # 写入爬取数据
+        #print(results)
+        writer.writerows(results)
+    # 关闭csv文件
+schoolSpider()
+#courtSpider(["/school/4019.htm#xiaoqu"], "")
+#houseSpider(["/xuequfang/kw%ba%bc%d6%dd%ca%d0%cc%ec%cb%ae%d0%a1%d1%a7/"])
